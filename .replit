@@ -1,0 +1,70 @@
+modules = ["python-3.11", "postgresql-16", "nodejs-20", "python3"]
+
+[nix]
+channel = "stable-24_05"
+packages = ["glibcLocales"]
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["python", "app.py"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "API Server"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "React Server"
+
+[[workflows.workflow]]
+name = "API Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python api_server.py"
+waitForPort = 8000
+
+[[workflows.workflow]]
+name = "React Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd ideaflow-react && npm run dev -- --host 0.0.0.0 --port 5000"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 5001
+externalPort = 3000
+
+[[ports]]
+localPort = 8000
+externalPort = 8000
+
+[[ports]]
+localPort = 34457
+externalPort = 3001
+
+[[ports]]
+localPort = 41121
+externalPort = 3002
+
+[[ports]]
+localPort = 43403
+externalPort = 4200

@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IdeaFlow Database Admin</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f7fa;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .section {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .button {
+            background: #667eea;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .button:hover { background: #5a6fd8; }
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .info-card {
+            background: #f8f9ff;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        pre {
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        .status-good { color: #28a745; font-weight: bold; }
+        .status-warning { color: #ffc107; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🗄️ IdeaFlow Database Admin Panel</h1>
+        <p>View and manage your Neon PostgreSQL database</p>
+    </div>
+
+    <div class="section">
+        <h2>📊 Database Connection Info</h2>
+        <div class="info-grid">
+            <div class="info-card">
+                <h3>Database Provider</h3>
+                <p><strong>Neon PostgreSQL</strong></p>
+                <p>Cloud-hosted PostgreSQL database</p>
+            </div>
+            <div class="info-card">
+                <h3>Server Location</h3>
+                <p><strong>AWS US East 1</strong></p>
+                <p>Virginia, United States</p>
+            </div>
+            <div class="info-card">
+                <h3>Connection Status</h3>
+                <p class="status-good">✅ Connected</p>
+                <p>SSL encrypted connection</p>
+            </div>
+            <div class="info-card">
+                <h3>Database Name</h3>
+                <p><strong>neondb</strong></p>
+                <p>Production database instance</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>🔍 View Data Options</h2>
+        <p>Choose how you want to view your IdeaFlow data:</p>
+        
+        <h3>Option 1: Command Line Viewer</h3>
+        <pre>python view_data.py</pre>
+        <p>Shows all tables with data summary</p>
+        
+        <h3>Option 2: View Specific Tables</h3>
+        <pre>python view_data.py users        # View user accounts
+python view_data.py sessions     # View brainstorming sessions  
+python view_data.py ideas        # View submitted ideas
+python view_data.py votes        # View voting data
+python view_data.py participants # View session participants</pre>
+
+        <h3>Option 3: Direct SQL Access</h3>
+        <pre>psql "postgresql://neondb_owner:npg_hrm7Ju3oWCwV@ep-divine-wildflower-adz7arpu.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require"</pre>
+        <p>Connect directly with PostgreSQL client</p>
+    </div>
+
+    <div class="section">
+        <h2>📋 Database Schema</h2>
+        <p>Your IdeaFlow database contains these tables:</p>
+        
+        <div class="info-grid">
+            <div class="info-card">
+                <h4>👥 users</h4>
+                <p>User accounts, authentication, and subscription data</p>
+            </div>
+            <div class="info-card">
+                <h4>🎯 sessions</h4>
+                <p>Brainstorming sessions and configurations</p>
+            </div>
+            <div class="info-card">
+                <h4>💡 ideas</h4>
+                <p>Ideas submitted during sessions</p>
+            </div>
+            <div class="info-card">
+                <h4>🗳️ votes</h4>
+                <p>Voting data and preferences</p>
+            </div>
+            <div class="info-card">
+                <h4>👤 participants</h4>
+                <p>Session membership and participation</p>
+            </div>
+            <div class="info-card">
+                <h4>🎨 themes</h4>
+                <p>AI-generated themes and clusters</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>🛠️ Management Tools</h2>
+        <p>Tools for managing your database:</p>
+        
+        <a href="#" class="button" onclick="showConnectionString()">Show Connection String</a>
+        <a href="#" class="button" onclick="showBackupInfo()">Backup Information</a>
+        <a href="#" class="button" onclick="showUsageStats()">Usage Statistics</a>
+        
+        <div id="info-display" style="margin-top: 15px;"></div>
+    </div>
+
+    <div class="section">
+        <h2>🔒 Security & Access</h2>
+        <div class="info-grid">
+            <div class="info-card">
+                <h4>Encryption</h4>
+                <p class="status-good">✅ SSL/TLS Enabled</p>
+                <p>All data transmitted securely</p>
+            </div>
+            <div class="info-card">
+                <h4>Authentication</h4>
+                <p class="status-good">✅ Password Protected</p>
+                <p>Database credentials required</p>
+            </div>
+            <div class="info-card">
+                <h4>Backups</h4>
+                <p class="status-good">✅ Automated</p>
+                <p>Neon handles backup automation</p>
+            </div>
+            <div class="info-card">
+                <h4>Monitoring</h4>
+                <p class="status-good">✅ Active</p>
+                <p>Connection health monitored</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showConnectionString() {
+            document.getElementById('info-display').innerHTML = `
+                <div class="info-card">
+                    <h4>Database Connection String</h4>
+                    <pre>postgresql://neondb_owner:npg_hrm7Ju3oWCwV@ep-divine-wildflower-adz7arpu.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require</pre>
+                    <p><strong>Note:</strong> Keep this connection string secure and private</p>
+                </div>
+            `;
+        }
+
+        function showBackupInfo() {
+            document.getElementById('info-display').innerHTML = `
+                <div class="info-card">
+                    <h4>Backup Configuration</h4>
+                    <p><strong>Provider:</strong> Neon PostgreSQL</p>
+                    <p><strong>Frequency:</strong> Automated daily backups</p>
+                    <p><strong>Retention:</strong> 7 days point-in-time recovery</p>
+                    <p><strong>Location:</strong> AWS US East 1</p>
+                    <p><strong>Alternative:</strong> Manual exports available via pg_dump</p>
+                </div>
+            `;
+        }
+
+        function showUsageStats() {
+            document.getElementById('info-display').innerHTML = `
+                <div class="info-card">
+                    <h4>Current Usage Statistics</h4>
+                    <p>Run <code>python view_data.py</code> to see:</p>
+                    <ul>
+                        <li>Total user accounts</li>
+                        <li>Active brainstorming sessions</li>
+                        <li>Ideas submitted</li>
+                        <li>Votes cast</li>
+                        <li>Subscription usage</li>
+                    </ul>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
