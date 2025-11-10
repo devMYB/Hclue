@@ -41,9 +41,12 @@ else:
 
 # Initialize SocketIO without Redis (single server setup)
 socketio = SocketIO(
-    app, 
+    app,
     cors_allowed_origins="*",
-    async_mode='threading'
+    async_mode='threading',
+    ping_interval=10,  # Send ping every 10 seconds
+    ping_timeout=5,     # Wait 5 seconds for pong before considering disconnected
+    disconnect_timeout=10  # Wait 10 seconds before disconnecting
 )
 
 # Use local PostgreSQL database
@@ -51,6 +54,9 @@ socketio = SocketIO(
 
 # Initialize Stripe
 stripe_manager = StripeManager()
+
+# Track active connections: {socket_id: {'session_id': str, 'user_id': str, 'is_facilitator': bool}}
+active_connections = {}
 
 # JWT Authentication Middleware
 def require_auth(f):
@@ -286,6 +292,13 @@ def join_session(session_id):
         
         # Emit real-time update to all users in the session room
         socketio.emit('participant_joined', participant_data, room=f'session_{session_id}')
+        
+        # Also emit full participant list for consistency
+        participants_list = db_manager.get_participants(session_id)
+        socketio.emit('participants_updated', {
+            'session_id': session_id,
+            'participants': participants_list
+        }, room=f'session_{session_id}')
         
         return jsonify(participant_data), 201
     except Exception as e:
@@ -674,31 +687,119 @@ def login():
 @socketio.on('connect')
 def handle_connect():
     """Handle client connection"""
-    print('Client connected')
+    print(f'Client connected: {request.sid}')
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    """Handle client disconnection"""
-    print('Client disconnected')
+    """Handle client disconnection - remove participant from session"""
+    socket_id = request.sid
+    print(f'[DISCONNECT] Client disconnected: {socket_id}')
+    print(f'[DISCONNECT] Active connections before cleanup: {len(active_connections)}')
+    
+    # Check if this connection was tracking a participant
+    if socket_id in active_connections:
+        connection_info = active_connections[socket_id]
+        session_id = connection_info.get('session_id')
+        user_id = connection_info.get('user_id')
+        is_facilitator = connection_info.get('is_facilitator', False)
+        
+        print(f'[DISCONNECT] Connection info: session={session_id}, user={user_id}, facilitator={is_facilitator}')
+        
+        # Only remove if it's a participant (not facilitator)
+        if session_id and user_id and not is_facilitator:
+            print(f"[DISCONNECT] Removing participant {user_id} from session {session_id} due to disconnect")
+            
+            # Remove from database
+            removed = db_manager.remove_participant(session_id, user_id)
+            print(f"[DISCONNECT] Database removal result: {removed}")
+            
+            if removed:
+                # Emit event to notify facilitator and other participants
+                participant_data = {
+                    'id': user_id,
+                    'session_id': session_id,
+                    'action': 'left'
+                }
+                socketio.emit('participant_left', participant_data, room=f'session_{session_id}')
+                print(f"[DISCONNECT] Emitted participant_left event for {user_id} in session {session_id}")
+                
+                # Emit full participant list for consistency
+                participants_list = db_manager.get_participants(session_id)
+                socketio.emit('participants_updated', {
+                    'session_id': session_id,
+                    'participants': participants_list
+                }, room=f'session_{session_id}')
+            else:
+                print(f"[DISCONNECT] WARNING: Failed to remove participant {user_id} from database")
+        else:
+            print(f"[DISCONNECT] Skipping removal - facilitator={is_facilitator}, session_id={session_id}, user_id={user_id}")
+        
+        # Remove from tracking
+        del active_connections[socket_id]
+        print(f'[DISCONNECT] Active connections after cleanup: {len(active_connections)}')
+    else:
+        print(f'[DISCONNECT] Socket {socket_id} not found in active_connections')
 
 @socketio.on('join_session')
 def handle_join_session(data):
     """Join a session room for real-time updates"""
     session_id = data.get('session_id')
     user_id = data.get('user_id')
+    is_facilitator = data.get('is_facilitator', False)
     
     if session_id:
+        socket_id = request.sid
         join_room(f'session_{session_id}')
+        
+        # Track this connection
+        active_connections[socket_id] = {
+            'session_id': session_id,
+            'user_id': user_id,
+            'is_facilitator': is_facilitator
+        }
+        
         emit('joined_session', {'session_id': session_id})
+        print(f"Client {socket_id} joined session {session_id} (user: {user_id}, facilitator: {is_facilitator})")
 
 @socketio.on('leave_session')
 def handle_leave_session(data):
-    """Leave a session room"""
+    """Leave a session room and remove participant if applicable"""
     session_id = data.get('session_id')
     user_id = data.get('user_id')
+    socket_id = request.sid
     
     if session_id:
         leave_room(f'session_{session_id}')
+        
+        # Check if this is a participant (not facilitator) and remove them
+        connection_info = active_connections.get(socket_id, {})
+        is_facilitator = connection_info.get('is_facilitator', False)
+        
+        if user_id and not is_facilitator:
+            print(f"Participant {user_id} leaving session {session_id}")
+            removed = db_manager.remove_participant(session_id, user_id)
+            
+            if removed:
+                # Emit event to notify facilitator and other participants
+                participant_data = {
+                    'id': user_id,
+                    'session_id': session_id,
+                    'action': 'left'
+                }
+                socketio.emit('participant_left', participant_data, room=f'session_{session_id}')
+                print(f"Emitted participant_left event for {user_id} in session {session_id}")
+                
+                # Emit updated participant list
+                participants_list = db_manager.get_participants(session_id)
+                socketio.emit('participants_updated', {
+                    'session_id': session_id,
+                    'participants': participants_list
+                }, room=f'session_{session_id}')
+        
+        # Remove from tracking
+        if socket_id in active_connections:
+            del active_connections[socket_id]
+        
         emit('left_session', {'session_id': session_id})
 
 # Add voting endpoint
@@ -752,7 +853,7 @@ def submit_vote(session_id):
                     'idea_id': idea_id,
                     'voter_id': voter_id,
                     'votes': vote_count
-                }, to=f'session_{session_id}')
+                }, room=f'session_{session_id}')
                 
                 return jsonify({'success': True, 'votes': vote_count}), 201
             else:
@@ -789,21 +890,27 @@ def get_votes(session_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/sessions/<session_id>/iterative-prompt', methods=['POST'])
+@require_auth
+@require_facilitator
 def create_iterative_prompt(session_id):
     """Create a new iterative brainstorming round with selected ideas as prompts"""
     try:
         data = request.get_json()
         selected_idea_ids = data.get('selected_idea_ids', [])
-        facilitator_id = data.get('facilitator_id')
         
         if not selected_idea_ids:
             return jsonify({'error': 'No ideas selected'}), 400
             
-        # Verify facilitator permissions
+        # Verify facilitator permissions - use authenticated user from decorator
         session = db_manager.get_session(session_id)
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+            
         session_facilitator_id = session.get('facilitatorId') or session.get('facilitator_id')
-        if not session or session_facilitator_id != facilitator_id:
-            return jsonify({'error': 'Unauthorized'}), 403
+        authenticated_user_id = request.user_id
+        
+        if session_facilitator_id != authenticated_user_id:
+            return jsonify({'error': 'Unauthorized - only the session facilitator can start new rounds'}), 403
             
         # Get the selected ideas content
         if not db_manager.engine:
@@ -960,6 +1067,19 @@ def generate_themes(session_id):
                 conn.execute(query, {'theme_id': theme_id_str, 'idea_id': str(idea_id)})
             
             conn.commit()
+        
+        # Get themes and ideas_by_theme for WebSocket event
+        themes = db_manager.get_themes(session_id)
+        ideas_by_theme = db_manager.get_ideas_by_theme(session_id)
+        
+        # Emit themes_generated event to all users in the session room
+        socketio.emit('themes_generated', {
+            'session_id': session_id,
+            'themes': themes,
+            'ideas_by_theme': ideas_by_theme
+        }, room=f'session_{session_id}')
+        
+        print(f"[Themes] Emitted themes_generated event for session {session_id} with {len(themes)} themes")
         
         return jsonify(theme_data)
         

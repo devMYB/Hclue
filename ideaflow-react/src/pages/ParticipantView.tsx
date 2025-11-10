@@ -4,6 +4,7 @@ import { Lightbulb, Clock, Vote, Users, CheckCircle } from 'lucide-react';
 import { apiService } from '../services/api';
 import type { ApiSession, ApiIdea, ApiParticipant } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { io, Socket } from 'socket.io-client';
 
 const ParticipantView: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -37,16 +38,37 @@ const ParticipantView: React.FC = () => {
     if (!sessionId) return;
 
     // Import Socket.IO and establish connection
-    const script = document.createElement('script');
-    script.src = '/socket.io/socket.io.js';
-    script.onload = () => {
-      // @ts-ignore - Socket.IO loaded dynamically
-      const socket = window.io();
-      
+    const isNgrok = window.location.hostname.includes('ngrok');
+    const isHttps = window.location.protocol === 'https:';
+    const socketBaseUrl = (isNgrok || isHttps)
+      ? ''
+      : 'http://90.0.0.3:8000';
+
+    const socket: Socket = io(socketBaseUrl, {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      withCredentials: true
+    });
+
+    socket.on('connect', () => {
+      console.log('[ParticipantView] WebSocket connected:', socket.id);
       // Join session room for timer updates
-      socket.emit('join_session', { session_id: sessionId });
+      socket.emit('join_session', { 
+        session_id: sessionId,
+        user_id: currentUser.id,
+        is_facilitator: false
+      });
+      console.log('[ParticipantView] join_session emitted', {
+        session_id: sessionId,
+        user_id: currentUser.id
+      });
+    });
       
-      // Listen for timer start from facilitator
+    socket.on('connect_error', (err) => {
+      console.error('[ParticipantView] WebSocket connection error:', err);
+    });
+
+    // Listen for timer start from facilitator
       socket.on('timer_started', (timerData: any) => {
         console.log('Timer started event received:', timerData);
         const duration = timerData.duration || 300;
@@ -95,23 +117,52 @@ const ParticipantView: React.FC = () => {
           if (prev.some(p => p.id === participantData.id)) {
             return prev;
           }
-          return [...prev, participantData];
+          console.log('[ParticipantView] Existing participants before join:', prev);
+          const updatedList = [...prev, participantData];
+          console.log('[ParticipantView] Participant list after join:', updatedList.length);
+          return updatedList;
+        });
+
+        // Also refresh participants from API to ensure consistency
+        if (sessionId) {
+          apiService.getParticipants(sessionId).then(updatedParticipants => {
+            console.log('[ParticipantView] Refreshed participants after join event:', updatedParticipants.length, updatedParticipants);
+            setParticipants(updatedParticipants);
+          }).catch(err => console.error('[ParticipantView] Error refreshing participants after join:', err));
+        }
+      });
+      
+      // Listen for broadcast list updates
+      socket.on('participants_updated', (data: any) => {
+        console.log('[ParticipantView] Participants updated broadcast:', data?.participants?.length, data);
+        if (data?.participants) {
+          setParticipants(data.participants);
+        }
+      });
+      
+      // Listen for participants leaving
+      socket.on('participant_left', (participantData: any) => {
+        console.log('[ParticipantView] Participant left event received:', participantData);
+        setParticipants(prev => {
+          const filtered = prev.filter(p => p.id !== participantData.id);
+          console.log(`[ParticipantView] Participant ${participantData.id} removed. Count: ${prev.length} -> ${filtered.length}`);
+          return filtered;
         });
       });
 
-      // Cleanup function
-      return () => {
-        socket.emit('leave_session', { session_id: sessionId });
-        socket.disconnect();
-      };
-    };
-    
-    document.head.appendChild(script);
-    
+    // Cleanup function
     return () => {
-      document.head.removeChild(script);
+      socket.emit('leave_session', { 
+        session_id: sessionId,
+        user_id: currentUser.id
+      });
+      console.log('[ParticipantView] leave_session emitted', {
+        session_id: sessionId,
+        user_id: currentUser.id
+      });
+      socket.disconnect();
     };
-  }, [sessionId]);
+  }, [sessionId, currentUser.id]);
 
   // Format timer display
   const formatTime = (seconds: number) => {

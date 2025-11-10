@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiService, type ApiSession, type ApiParticipant, type ApiIdea } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 // import { websocketService } from '../services/websocket';
 import { Play, Pause, SkipForward, Users, Clock, BarChart3, MessageSquare, Lightbulb, GitBranch } from 'lucide-react';
 import IdeaFlowChart from '../components/IdeaFlowChart';
+import { io, Socket } from 'socket.io-client';
 
 const FacilitatorDashboard: React.FC = () => {
   const { sessionId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [session, setSession] = useState<ApiSession | null>(null);
   const [participants, setParticipants] = useState<ApiParticipant[]>([]);
   const [currentPhase, setCurrentPhase] = useState(1);
@@ -70,14 +73,31 @@ const FacilitatorDashboard: React.FC = () => {
     loadSessionData();
 
     // Set up WebSocket for real-time participant updates
-    const script = document.createElement('script');
-    script.src = '/socket.io/socket.io.js';
-    script.onload = () => {
-      // @ts-ignore - Socket.IO loaded dynamically
-      const socket = window.io();
-      
-      // Join session room
-      socket.emit('join_session', { session_id: sessionId });
+    const isNgrok = window.location.hostname.includes('ngrok');
+    const isHttps = window.location.protocol === 'https:';
+    const socketBaseUrl = (isNgrok || isHttps)
+      ? ''
+      : 'http://90.0.0.3:8000';
+
+    const socket: Socket = io(socketBaseUrl, {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      withCredentials: true
+    });
+
+    socket.on('connect', () => {
+      console.log('[FacilitatorDashboard] WebSocket connected:', socket.id);
+      socket.emit('join_session', {
+        session_id: sessionId,
+        user_id: user?.id,
+        is_facilitator: true
+      });
+      console.log('[FacilitatorDashboard] join_session emitted', {
+        session_id: sessionId,
+        user_id: user?.id,
+        is_facilitator: true
+      });
+    });
       
       // Listen for new participants joining
       socket.on('participant_joined', (participantData: any) => {
@@ -87,8 +107,44 @@ const FacilitatorDashboard: React.FC = () => {
           if (prev.some(p => p.id === participantData.id)) {
             return prev;
           }
-          return [...prev, participantData];
+          console.log('[WebSocket] Existing participants before join:', prev);
+          const updatedList = [...prev, participantData];
+          console.log('[WebSocket] Participant list after join:', updatedList.length);
+          return updatedList;
         });
+
+        // Fetch authoritative participant list to avoid drift
+        if (sessionId) {
+          apiService.getParticipants(sessionId).then(updatedParticipants => {
+            console.log('[WebSocket] Refreshed participants after join event:', updatedParticipants.length, updatedParticipants);
+            setParticipants(updatedParticipants);
+          }).catch(err => console.error('[WebSocket] Error refreshing participants after join:', err));
+        }
+      });
+      
+      // Listen for full participant list updates
+      socket.on('participants_updated', (data: any) => {
+        console.log('[WebSocket] Participants updated broadcast:', data?.participants?.length, data);
+        if (data?.participants) {
+          setParticipants(data.participants);
+        }
+      });
+      
+      // Listen for participants leaving
+      socket.on('participant_left', (participantData: any) => {
+        console.log('Participant left event received:', participantData);
+        setParticipants(prev => {
+          const filtered = prev.filter(p => p.id !== participantData.id);
+          console.log(`Participant ${participantData.id} removed. Count: ${prev.length} -> ${filtered.length}`);
+          return filtered;
+        });
+        // Force immediate refresh from API to ensure consistency
+        if (sessionId) {
+          apiService.getParticipants(sessionId).then(updatedParticipants => {
+            console.log('Refreshed participants after leave event:', updatedParticipants.length);
+            setParticipants(updatedParticipants);
+          }).catch(err => console.error('Error refreshing participants:', err));
+        }
       });
       
       // Listen for timer_started event (synchronized timer start)
@@ -109,100 +165,109 @@ const FacilitatorDashboard: React.FC = () => {
         setIsTimerRunning(timerData.is_running || false);
       });
       
-      // Cleanup
-      return () => {
-        socket.emit('leave_session', { session_id: sessionId });
-        socket.disconnect();
-      };
-    };
-    document.head.appendChild(script);
-
-    // Set up polling for real-time updates with error handling
-    let consecutiveErrors = 0;
-    const maxConsecutiveErrors = 3;
-    
-    const pollInterval = setInterval(async () => {
-      if (sessionId) {
+      // Listen for idea_submitted events (replace polling)
+      socket.on('idea_submitted', (ideaData: any) => {
+        console.log('[WebSocket] Idea submitted:', ideaData);
+        setSubmittedIdeas(prev => {
+          // Check if idea already exists
+          if (prev.some(i => i.id === ideaData.id)) {
+            return prev;
+          }
+          const newIdeas = [...prev, {
+            id: ideaData.id,
+            content: ideaData.content,
+            sessionId: ideaData.session_id || sessionId || '',
+            authorName: ideaData.author_name,
+            authorId: ideaData.author_id,
+            roundNumber: ideaData.round_number || 1,
+            createdAt: ideaData.created_at
+          }];
+          console.log(`[WebSocket] Ideas updated: ${prev.length} -> ${newIdeas.length}`);
+          return newIdeas;
+        });
+        
+        // Update current round if needed
+        const roundNumber = ideaData.round_number || 1;
+        setSession(prev => {
+          if (prev) {
+            const currentRound = prev.currentRound || 1;
+            const newRound = Math.max(currentRound, roundNumber);
+            return { ...prev, currentRound: newRound };
+          }
+          return prev;
+        });
+      });
+      
+      // Listen for vote_updated events (replace polling)
+      socket.on('vote_updated', async (voteData: any) => {
+        console.log('[WebSocket] Vote updated:', voteData);
+        // Fetch updated vote results from API
         try {
-          // Update session data to get current phase
-          const sessionData = await apiService.getSession(sessionId);
-          if (sessionData) {
-            setSession(sessionData);
-            setCurrentPhase(sessionData.phase);
-          }
-          
-          // Update participants
-          const participantData = await apiService.getParticipants(sessionId);
-          setParticipants(participantData);
-          
-          // Always update ideas to show real submitted ideas
-          const ideas = await apiService.getIdeas(sessionId, true);
-          setSubmittedIdeas(ideas);
-          
-          // Debug: Log the ideas to see their round numbers
-          console.log('Ideas fetched:', ideas.map(idea => ({
-            content: idea.content?.substring(0, 30),
-            roundNumber: idea.roundNumber,
-            hasRoundNumber: idea.hasOwnProperty('roundNumber')
-          })));
-          
-          // Calculate current round from the ideas
-          const currentRound = ideas.length > 0 ? Math.max(...ideas.map(idea => idea.roundNumber || 1)) : 1;
-          if (sessionData) {
-            sessionData.currentRound = currentRound;
-            setSession(sessionData);
-          }
-          
-          // Load vote counts during voting phase
-          if (sessionData && sessionData.phase >= 4) {
-            try {
-              const voteResults = await apiService.getVotes(sessionId);
-              
-              // Create a map of idea ID to total vote points
-              const voteMap: Record<string, number> = {};
-              voteResults.forEach((result: any) => {
-                voteMap[result.id] = result.total_points || 0;
-              });
-              setVoteResults(voteMap);
-              setVotes(voteResults);
-            } catch (error) {
-              // Only log vote errors occasionally to avoid spam
-              if (Math.random() < 0.1) {
-                console.warn('Error fetching vote results:', error);
-              }
-            }
-          }
-          
-          // Load themes during AI analysis phase
-          if (sessionData && sessionData.phase >= 5) {
-            try {
-              const themesData = await apiService.getThemes(sessionId);
-              setThemes(themesData.themes || []);
-              setIdeasByTheme(themesData.ideas_by_theme || {});
-            } catch (error) {
-              // Only log theme errors occasionally to avoid spam
-              if (Math.random() < 0.1) {
-                console.warn('Error fetching themes:', error);
-              }
-            }
-          }
-          
-          // Reset error counter on successful poll
-          consecutiveErrors = 0;
+          const voteResults = await apiService.getVotes(sessionId!);
+          const voteMap: Record<string, number> = {};
+          voteResults.forEach((result: any) => {
+            voteMap[result.id] = result.total_points || 0;
+          });
+          setVoteResults(voteMap);
+          setVotes(voteResults);
+          console.log('[WebSocket] Vote results updated');
         } catch (error) {
-          consecutiveErrors++;
-          // Only log polling errors if we've had multiple consecutive failures
-          if (consecutiveErrors >= maxConsecutiveErrors) {
-            console.warn(`Polling failed ${consecutiveErrors} times in a row:`, error);
-          }
+          console.error('[WebSocket] Error fetching vote results:', error);
         }
-      }
-    }, 3000); // Poll every 3 seconds to reduce load
+      });
+      
+      // Listen for themes_generated events (replace polling)
+      socket.on('themes_generated', (themesData: any) => {
+        console.log('[WebSocket] Themes generated:', themesData);
+        setThemes(themesData.themes || []);
+        setIdeasByTheme(themesData.ideas_by_theme || {});
+        console.log(`[WebSocket] Themes updated: ${themesData.themes?.length || 0} themes`);
+      });
+      
+      // Enhance phase_changed listener to update session data
+      socket.on('phase_changed', async (phaseData: any) => {
+        console.log('[WebSocket] Phase changed:', phaseData);
+        const newPhase = phaseData.phase;
+        setCurrentPhase(newPhase);
+        
+        // Fetch updated session data
+        try {
+          const sessionData = await apiService.getSession(sessionId!);
+          if (sessionData) {
+            setSession(sessionData);
+            console.log('[WebSocket] Session data updated after phase change');
+          }
+        } catch (error) {
+          console.error('[WebSocket] Error fetching session data:', error);
+        }
+      });
+      
+    socket.on('connect_error', (err) => {
+      console.error('[FacilitatorDashboard] WebSocket connection error:', err);
+    });
 
+    // Cleanup
     return () => {
-      clearInterval(pollInterval);
+      socket.emit('leave_session', {
+        session_id: sessionId,
+        user_id: user?.id
+      });
+      console.log('[FacilitatorDashboard] leave_session emitted', {
+        session_id: sessionId,
+        user_id: user?.id
+      });
+      socket.disconnect();
     };
-  }, [sessionId, navigate]);
+
+    // Polling removed - all updates now come via WebSocket events
+    // WebSocket listeners handle:
+    // - idea_submitted -> updates ideas list
+    // - vote_updated -> updates vote results
+    // - themes_generated -> updates themes
+    // - phase_changed -> updates session phase
+    // - participant_joined/left -> updates participants list
+    console.log('[FacilitatorDashboard] WebSocket listeners initialized - polling disabled');
+  }, [sessionId, navigate, user?.id]);
 
   // Timer effect
   useEffect(() => {
@@ -445,7 +510,7 @@ const FacilitatorDashboard: React.FC = () => {
     
     try {
       const selectedIdeaIds = Array.from(selectedIdeas);
-      await apiService.sendSelectedIdeasAsPrompts(sessionId, selectedIdeaIds, session.facilitatorId);
+      await apiService.sendSelectedIdeasAsPrompts(sessionId, selectedIdeaIds);
       
       // Clear selection
       setSelectedIdeas(new Set());
@@ -1041,7 +1106,11 @@ const FacilitatorDashboard: React.FC = () => {
                 <span>Action Planning & Session Completion</span>
               </h2>
               <div className="flex space-x-3">
-                <button className="btn-primary">
+                <button 
+                  onClick={handleSendSelectedIdeasAsPrompts}
+                  disabled={selectedIdeas.size === 0}
+                  className={`btn-primary ${selectedIdeas.size === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
                   Start New Round
                 </button>
                 <button 

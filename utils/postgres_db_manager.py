@@ -563,6 +563,27 @@ class PostgresDBManager:
             print(f"Failed to add participant: {e}")
             return False
     
+    def remove_participant(self, session_id, user_id):
+        """Remove a participant from a session"""
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(text("""
+                    DELETE FROM participants 
+                    WHERE session_id = :session_id AND user_id = :user_id
+                """), {
+                    'session_id': session_id,
+                    'user_id': user_id
+                })
+                conn.commit()
+                deleted_count = result.rowcount
+                print(f"Removed participant {user_id} from session {session_id} (deleted {deleted_count} row(s))")
+                return deleted_count > 0
+        except Exception as e:
+            print(f"Failed to remove participant: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
     def add_idea(self, idea_data):
         """Add a new idea to a session"""
         try:

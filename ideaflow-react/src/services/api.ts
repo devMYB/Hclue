@@ -300,13 +300,12 @@ class ApiService {
     }
   }
 
-  async sendSelectedIdeasAsPrompts(sessionId: string, selectedIdeaIds: string[], facilitatorId: string): Promise<any> {
+  async sendSelectedIdeasAsPrompts(sessionId: string, selectedIdeaIds: string[]): Promise<any> {
     try {
       const response = await this.fetchApi(`/sessions/${sessionId}/iterative-prompt`, {
         method: 'POST',
         body: JSON.stringify({
-          selected_idea_ids: selectedIdeaIds,
-          facilitator_id: facilitatorId
+          selected_idea_ids: selectedIdeaIds
         })
       });
       return response;
