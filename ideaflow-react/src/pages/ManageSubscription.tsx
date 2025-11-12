@@ -1,14 +1,14 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useSubscription } from "../contexts/SubscriptionContext";
-import { Crown, Check, CreditCard, Calendar, AlertCircle } from "lucide-react";
+import { Crown, Check, AlertCircle } from "lucide-react";
 import StripeCheckout from "../components/StripeCheckout";
+import { resolveApiBasePath } from "../utils/apiBase";
 
 const ManageSubscription: React.FC = () => {
   const { user } = useAuth();
   const { subscription, subscriptionTiers, refreshSubscription } =
     useSubscription();
-  const [isLoading, setIsLoading] = useState(false);
 
   const currentTier = subscriptionTiers.find(
     (tier) => tier.id === subscription.tier,
@@ -26,24 +26,11 @@ const ManageSubscription: React.FC = () => {
 
   const handleStripeSuccess = async (sessionId: string) => {
     try {
-      setIsLoading(true);
-      // Use same URL logic as ApiService to avoid mixed content errors
-      const isNgrok = window.location.hostname.includes('ngrok');
-      const isHttps = window.location.protocol === 'https:';
-      
-      let API_BASE_URL;
-      if (isNgrok || isHttps) {
-        // For ngrok or HTTPS, use relative URL (Vite proxy will handle it)
-        API_BASE_URL = '';
-      } else {
-        // For local development, use network IP
-        API_BASE_URL = 'http://90.0.0.3:8000';
-      }
-
+      const apiBase = resolveApiBasePath();
       const token = localStorage.getItem('ideaflow_access_token');
 
       const response = await fetch(
-        `${API_BASE_URL}/api/payment/handle-success`,
+        `${apiBase}/payment/handle-success`,
         {
           method: "POST",
           headers: {
@@ -80,14 +67,7 @@ const ManageSubscription: React.FC = () => {
       }
     } catch (error) {
       console.error("Error handling payment success:", error);
-    } finally {
-      setIsLoading(false);
     }
-  };
-
-  const handleUpgrade = async (tierId: string) => {
-    // This will be handled by the StripeCheckout component
-    console.log(`Upgrading to ${tierId}`);
   };
 
   const handleManageBilling = () => {

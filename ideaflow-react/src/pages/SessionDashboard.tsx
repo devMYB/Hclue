@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubscription } from '../contexts/SubscriptionContext';
 import { apiService, type ApiSession } from '../services/api';
-import { rbacService } from '../services/rbac';
 import { Plus, Users, Clock, Calendar, ArrowRight, Crown, Trash2, UserPlus, UserMinus } from 'lucide-react';
 
 const SessionDashboard: React.FC = () => {
@@ -69,7 +68,7 @@ const SessionDashboard: React.FC = () => {
       }
     };
 
-    const handleParticipantJoined = ({ sessionId, participant }: any) => {
+    const handleParticipantJoined = ({ sessionId }: any) => {
       setParticipantCounts(prev => {
         const newCounts = new Map(prev);
         const currentCount = newCounts.get(sessionId) || 0;
@@ -189,8 +188,10 @@ const SessionDashboard: React.FC = () => {
       navigate(`/session/${joinSessionId.trim()}`);
     } catch (error) {
       console.error('Error joining session:', error);
-      console.error('Error details:', error.message);
-      alert(`Failed to join session: ${error.message}`);
+      const message =
+        error instanceof Error ? error.message : String(error);
+      console.error('Error details:', message);
+      alert(`Failed to join session: ${message}`);
     } finally {
       setIsLoading(false);
     }

@@ -1,3 +1,5 @@
+import { resolveApiBasePath } from '../utils/apiBase';
+
 interface ApiSession {
   id: string;
   title: string;
@@ -47,20 +49,7 @@ class ApiService {
   private eventListeners: Map<string, ((data: any) => void)[]> = new Map();
 
   constructor() {
-    // Use environment variable or fallback to local development
-    const isNgrok = window.location.hostname.includes('ngrok');
-    const isHttps = window.location.protocol === 'https:';
-    
-    let API_BASE_URL;
-    if (isNgrok || isHttps) {
-      // For ngrok or HTTPS, use relative URL (Vite proxy will handle it)
-      API_BASE_URL = '';
-    } else {
-      // For local development, use network IP
-      API_BASE_URL = 'http://90.0.0.3:8000';
-    }
-    
-    this.baseUrl = `${API_BASE_URL}/api`;
+    this.baseUrl = resolveApiBasePath();
     console.log('API: Connected to backend at', this.baseUrl);
   }
 

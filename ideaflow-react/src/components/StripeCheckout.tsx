@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { CreditCard, CheckCircle, AlertCircle } from "lucide-react";
-import { apiService } from "../services/api";
+import { CreditCard, AlertCircle } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { resolveApiBasePath } from "../utils/apiBase";
 
 interface StripeCheckoutProps {
   tierId: "basic" | "pro";
@@ -27,19 +27,7 @@ export const StripeCheckout: React.FC<StripeCheckoutProps> = ({
     setError(null);
 
     try {
-      // Use same URL logic as ApiService to avoid mixed content errors
-      const isNgrok = window.location.hostname.includes('ngrok');
-      const isHttps = window.location.protocol === 'https:';
-      
-      let API_BASE_URL;
-      if (isNgrok || isHttps) {
-        // For ngrok or HTTPS, use relative URL (Vite proxy will handle it)
-        API_BASE_URL = '';
-      } else {
-        // For local development, use network IP
-        API_BASE_URL = 'http://90.0.0.3:8000';
-      }
-
+      const apiBase = resolveApiBasePath();
       const token = localStorage.getItem('ideaflow_access_token');
       console.log(
         "Creating checkout session for tier:",
@@ -49,7 +37,7 @@ export const StripeCheckout: React.FC<StripeCheckoutProps> = ({
       );
 
       const response = await fetch(
-        `${API_BASE_URL}/api/payment/create-checkout-session`,
+        `${apiBase}/payment/create-checkout-session`,
         {
           method: "POST",
           mode: "cors",
@@ -73,6 +61,7 @@ export const StripeCheckout: React.FC<StripeCheckoutProps> = ({
       const data = await response.json();
 
       if (data.checkout_url) {
+        onSuccess?.();
         // Redirect to Stripe Checkout
         window.location.href = data.checkout_url;
       } else {

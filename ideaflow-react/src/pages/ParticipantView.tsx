@@ -5,6 +5,7 @@ import { apiService } from '../services/api';
 import type { ApiSession, ApiIdea, ApiParticipant } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { io, Socket } from 'socket.io-client';
+import { resolveSocketOrigin } from '../utils/apiBase';
 
 const ParticipantView: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -38,13 +39,9 @@ const ParticipantView: React.FC = () => {
     if (!sessionId) return;
 
     // Import Socket.IO and establish connection
-    const isNgrok = window.location.hostname.includes('ngrok');
-    const isHttps = window.location.protocol === 'https:';
-    const socketBaseUrl = (isNgrok || isHttps)
-      ? ''
-      : 'http://90.0.0.3:8000';
+    const socketOrigin = resolveSocketOrigin();
 
-    const socket: Socket = io(socketBaseUrl, {
+    const socket: Socket = io(socketOrigin, {
       path: '/socket.io',
       transports: ['websocket', 'polling'],
       withCredentials: true

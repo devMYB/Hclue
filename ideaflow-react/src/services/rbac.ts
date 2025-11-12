@@ -35,23 +35,12 @@ const FACILITATORS: FacilitatorCredentials[] = [
   }
 ];
 
+import { resolveApiBasePath } from '../utils/apiBase';
+
 export class RBACService {
   private static instance: RBACService;
   private participants: Map<string, User> = new Map();
-  private baseUrl = (() => {
-    const isNgrok = window.location.hostname.includes('ngrok');
-    const isHttps = window.location.protocol === 'https:';
-    const isLocalhost = window.location.hostname === 'localhost';
-    
-    if (isNgrok || isHttps) {
-      // For ngrok or HTTPS, use relative URL (Vite proxy will handle it)
-      return '/api';
-    } else if (isLocalhost) {
-      return 'http://localhost:8000/api';
-    } else {
-      return 'http://90.0.0.3:8000/api';
-    }
-  })();
+  private baseUrl = resolveApiBasePath();
 
   static getInstance(): RBACService {
     if (!RBACService.instance) {

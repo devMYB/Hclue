@@ -22,7 +22,7 @@ const LoginInfo: React.FC = () => {
           </div>
           
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {facilitators.map((facilitator, index) => (
+            {facilitators.map((facilitator) => (
               <div key={facilitator.username} className="bg-white rounded-lg shadow-sm border p-4">
                 <div className="flex items-center space-x-2 mb-3">
                   <Crown className="w-5 h-5 text-yellow-600" />

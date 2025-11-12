@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
+import { resolveApiBasePath } from '../utils/apiBase';
 
 interface SubscriptionTier {
   id: string;
@@ -109,21 +110,9 @@ export const SubscriptionProvider: React.FC<SubscriptionProviderProps> = ({ chil
 
   const fetchSubscriptionStatus = async () => {
     try {
-      // Use the same URL logic as ApiService to avoid mixed content errors
-      const isNgrok = window.location.hostname.includes('ngrok');
-      const isHttps = window.location.protocol === 'https:';
-      
-      let API_BASE_URL;
-      if (isNgrok || isHttps) {
-        // For ngrok or HTTPS, use relative URL (Vite proxy will handle it)
-        API_BASE_URL = '';
-      } else {
-        // For local development, use network IP
-        API_BASE_URL = 'http://90.0.0.3:8000';
-      }
-      
+      const apiBase = resolveApiBasePath();
       const token = localStorage.getItem('ideaflow_access_token');
-      const response = await fetch(`${API_BASE_URL}/api/subscription/status`, {
+      const response = await fetch(`${apiBase}/subscription/status`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,

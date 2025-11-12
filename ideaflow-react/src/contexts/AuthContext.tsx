@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { rbacService, type User } from '../services/rbac';
+import { resolveApiBasePath } from '../utils/apiBase';
 
 interface AuthContextType {
   user: User | null;
@@ -44,20 +45,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
-      // Use environment variable or fallback to local development
-      const isNgrok = window.location.hostname.includes('ngrok');
-      const isHttps = window.location.protocol === 'https:';
-      
-      let API_BASE_URL;
-      if (isNgrok || isHttps) {
-        // For ngrok or HTTPS, use relative URL (Vite proxy will handle it)
-        API_BASE_URL = '';
-      } else {
-        // For local development, use network IP
-        API_BASE_URL = 'http://90.0.0.3:8000';
-      }
-      
-      const apiUrl = `${API_BASE_URL}/api`;
+      const apiUrl = resolveApiBasePath();
       console.log('AUTH: Using API URL:', apiUrl);
       
       const response = await fetch(`${apiUrl}/auth/login`, {

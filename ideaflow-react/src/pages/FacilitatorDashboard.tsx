@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiService, type ApiSession, type ApiParticipant, type ApiIdea } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { resolveApiBasePath, resolveSocketOrigin } from '../utils/apiBase';
 // import { websocketService } from '../services/websocket';
 import { Play, Pause, SkipForward, Users, Clock, BarChart3, MessageSquare, Lightbulb, GitBranch } from 'lucide-react';
 import IdeaFlowChart from '../components/IdeaFlowChart';
@@ -73,13 +74,9 @@ const FacilitatorDashboard: React.FC = () => {
     loadSessionData();
 
     // Set up WebSocket for real-time participant updates
-    const isNgrok = window.location.hostname.includes('ngrok');
-    const isHttps = window.location.protocol === 'https:';
-    const socketBaseUrl = (isNgrok || isHttps)
-      ? ''
-      : 'http://90.0.0.3:8000';
+    const socketOrigin = resolveSocketOrigin();
 
-    const socket: Socket = io(socketBaseUrl, {
+    const socket: Socket = io(socketOrigin, {
       path: '/socket.io',
       transports: ['websocket', 'polling'],
       withCredentials: true
@@ -315,16 +312,12 @@ const FacilitatorDashboard: React.FC = () => {
         return;
       }
 
-      // Determine API base URL (same logic as apiService)
-      const isNgrok = window.location.hostname.includes('ngrok');
-      const isHttps = window.location.protocol === 'https:';
-      const API_BASE_URL = (isNgrok || isHttps) ? '' : 'http://90.0.0.3:8000';
-
+      const apiBase = resolveApiBasePath();
       if (!isTimerRunning) {
         // Start timer - use current timeRemaining if it's been set, otherwise default to 300
         // If timeRemaining is 0 or very low, it might be from a previous timer that expired
         const duration = (timeRemaining > 60) ? timeRemaining : 300;
-        const url = `${API_BASE_URL}/api/sessions/${sessionId}/timer`;
+        const url = `${apiBase}/sessions/${sessionId}/timer`;
         console.log('[toggleTimer] Starting timer, duration:', duration, 'timeRemaining:', timeRemaining, 'URL:', url);
         
         const response = await fetch(url, {
@@ -352,7 +345,7 @@ const FacilitatorDashboard: React.FC = () => {
         setIsTimerRunning(true);
       } else {
         // Pause timer
-        const url = `${API_BASE_URL}/api/sessions/${sessionId}/timer`;
+        const url = `${apiBase}/sessions/${sessionId}/timer`;
         console.log('[toggleTimer] Pausing timer, URL:', url);
         
         const response = await fetch(url, {
@@ -379,69 +372,6 @@ const FacilitatorDashboard: React.FC = () => {
     } catch (error) {
       console.error('[toggleTimer] Error updating timer:', error);
       alert(`Failed to update timer: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
-
-  const startTimer = async (minutes: number = 5) => {
-    if (!sessionId) return;
-    
-    if (!minutes || minutes <= 0) {
-      console.error('[startTimer] Invalid minutes:', minutes);
-      return;
-    }
-    
-    try {
-      const token = localStorage.getItem('ideaflow_access_token');
-      if (!token) {
-        console.error('[startTimer] No auth token found');
-        alert('You are not authenticated. Please log in again.');
-        return;
-      }
-
-      // Determine API base URL
-      const isNgrok = window.location.hostname.includes('ngrok');
-      const isHttps = window.location.protocol === 'https:';
-      const API_BASE_URL = (isNgrok || isHttps) ? '' : 'http://90.0.0.3:8000';
-
-      const duration = minutes * 60;
-      const url = `${API_BASE_URL}/api/sessions/${sessionId}/timer`;
-      console.log('[startTimer] Starting timer with', minutes, 'minutes (', duration, 'seconds), URL:', url);
-      
-      // Update local state first so UI is responsive
-      setTimeRemaining(duration);
-      setIsTimerRunning(true);
-      
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          action: 'start',
-          duration: duration
-        })
-      });
-      
-      console.log('[startTimer] Response status:', response.status);
-      if (!response.ok) {
-        // Revert state if request failed
-        setIsTimerRunning(false);
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        console.error('[startTimer] Error response:', errorData);
-        throw new Error(errorData.error || `HTTP ${response.status}`);
-      }
-      
-      const result = await response.json();
-      console.log('[startTimer] Timer started successfully:', result);
-      // Ensure state matches server response
-      if (result.timer && result.timer.remaining) {
-        setTimeRemaining(result.timer.remaining);
-      }
-    } catch (error) {
-      console.error('[startTimer] Error starting timer:', error);
-      setIsTimerRunning(false);
-      alert(`Failed to start timer: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -477,20 +407,6 @@ const FacilitatorDashboard: React.FC = () => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const updateVotingSettings = async (settings: { max_votes_per_idea?: number; votes_per_participant?: number }) => {
-    if (!sessionId) return;
-    
-    try {
-      await apiService.updateVotingSettings(sessionId, settings);
-      // Refresh session data to get updated settings
-      const updatedSession = await apiService.getSession(sessionId);
-      setSession(updatedSession);
-    } catch (error) {
-      console.error('Error updating voting settings:', error);
-      alert('Failed to update voting settings. Please try again.');
-    }
   };
 
   const handleIdeaSelection = (ideaId: string, selected: boolean) => {
@@ -1056,10 +972,10 @@ const FacilitatorDashboard: React.FC = () => {
                       <div className="text-sm">
                         <div className="font-medium text-gray-900 mb-1">Top Themes by Votes:</div>
                         <ol className="list-decimal list-inside text-gray-600 space-y-1">
-                          {themes
+                          {[...themes]
                             .sort((a, b) => b.total_votes - a.total_votes)
                             .slice(0, 3)
-                            .map((theme, index) => (
+                            .map((theme) => (
                               <li key={theme.id}>{theme.name} ({theme.total_votes} votes)</li>
                             ))}
                         </ol>
